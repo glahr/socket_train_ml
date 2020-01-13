@@ -1,10 +1,11 @@
 import socket
+import pickle
 
-localIP = "192.168.7.1"
+localIP = "192.168.10.15"
 
 localPort = 20001
 
-bufferSize = 1024
+bufferSize = 20000
 
 msgFromServer = "Hello UDP Client"
 
@@ -24,12 +25,14 @@ print("UDP server up and listening")
 
 while (True):
     bytesAddressPair = UDPServerSocket.recvfrom(bufferSize)
-
+    
     message = bytesAddressPair[0]
 
     address = bytesAddressPair[1]
-
-    clientMsg = "Message from Client:{}".format(message)
+    
+    print('size of received message:',len(message))    
+    
+    clientMsg = "Message from Client:{}".format(pickle.loads(message))
     clientIP = "Client IP Address:{}".format(address)
 
     print(clientMsg)
@@ -39,3 +42,4 @@ while (True):
 
     UDPServerSocket.sendto(bytesToSend, address)
 
+    
