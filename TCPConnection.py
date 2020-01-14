@@ -5,18 +5,28 @@ Created on Mon Jan 13 16:15:27 2020
 @author: griloHBG
 """
 import socket
-from enum import Enum, auto
+# to use auto(), needs Python 3.7+
+from enum import Enum #, auto
 
 
 # enumeration for message types. used to differentiate between what server and client are communicating
 class TCPMessageType(Enum):
-    ACK = auto()
-    MODEL_REQUEST = auto()
-    MEMORY_REQUEST = auto()
-    
+    ACK = 1 #auto()
+    MODEL_REQUEST = 2 #auto()
+    MEMORY_REQUEST = 3 #auto()
+
+
 # class for specific communication for KR16 robot learning
 class TCPConnection:
-    
+
+    def default_message(message:TCPMessageType):
+        if message == TCPMessageType.ACK:
+            return 'ack'.encode()
+        if message == TCPMessageType.MODEL_REQUEST:
+            return 'model_request'.encode()
+        if message == TCPMessageType.MEMORY_REQUEST:
+            return 'memory_request'.encode()
+
     def __init__(self, ip, port, is_server=False, reusable=True, buffer_size=1024):
         # stores server's IP for both server and client object 
         self._ip = ip
@@ -31,11 +41,11 @@ class TCPConnection:
         
         # if this is the server
         if self._is_server:
-            # bind application, port and ip
-            self._socket.bind((self._ip,self._port))
-        
             # creates the server socket that listens for incomming connection requests
             self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+            # bind application, port and ip
+            self._socket.bind((self._ip, self._port))
         else:
         
             # creates the client socket that requests connection on the server
@@ -65,8 +75,11 @@ class TCPConnection:
             partial_msg = self._connection.recv(min(msg_total_size - bytes_received, self._buffer_size))
             # if none received
             if partial_msg == b'':
-                # ERROR!
-                raise RuntimeError("_recv - socket connection broken")
+                if self._is_server:
+                    # ERROR!
+                    raise RuntimeError("_recv - socket connection broken")
+                else:
+                    return ''
             # append to the array
             total_msg.append(partial_msg)
             # increase the amount of bytes received
@@ -83,7 +96,7 @@ class TCPConnection:
             # send stuff
             sent = self._connection.send(data_bytes[sent_bytes:])
             # if none sent
-            if sent == 0:
+            if sent == 0 and self._is_server:
                 # ERROR
                 raise RuntimeError("_send - socket connection broken")
                 return False
@@ -129,14 +142,14 @@ class TCPConnection:
     # receive model (expected to client (training PC) send model update to server (KUKA controller PC))
     def recv_model_update(self):
         # send a model requisition
-        self._send(TCPMessageType.MODEL_REQUEST)
+        self._send(TCPConnection.default_message(TCPMessageType.MODEL_REQUEST))
         
         # receive the model size
         model_size = self._recv()
         
         # send a ack informing that size was received
         # TODO: do we really need this ACK?
-        self._send(TCPMessageType.ACK)
+        self._send(TCPConnection.default_message(TCPMessageType.ACK))
         
         # receive model in bytes format (pickle, probably)
         model_bytes = self._recv(model_size)
@@ -147,13 +160,13 @@ class TCPConnection:
     # send real world traning output (expected to server (KUKA controller PC) send memoty update to client (training PC))
     def send_memory_update(self, memory_bytes):
         # send a memory sending requisition
-        self._send(TCPMessageType.MEMORY_REQUEST)
+        self._send(TCPConnection.default_message(TCPMessageType.MEMORY_REQUEST))
         
         # receive a ACK
         # TODO: do we really need this ACK?
         msg = self._recv()
         # if no ACK received...
-        if not msg == TCPMessageType.ACK:
+        if not msg == TCPConnection.default_message(TCPMessageType.ACK):
             # ERROR!
             raise Exception('ACK expected. Received instead:', msg)
             return
@@ -186,8 +199,18 @@ class TCPConnection:
         if self._is_server:
             raise Exception('You\'re a Server! Server can\'t request connection!')
             return
-        # request connection to server
-        self._connection.connect((self._ip, self._port))
+        # request connection to server. connection_ex returns a error number, instead of raise an exception
+        #self._connection.connect_ex((self._ip, self._port))
+        self._connection.settimeout(2)
+        try:
+            self._connection.connect((self._ip, self._port))
+        except Exception as e:
+            print(str(e))
+            exit(1)
+
+        print('(from inside: connected!)')
+        self._connection.settimeout(0)
+
     # try send model (expected to client (training PC) send model update to server (KUKA controller PC))
     def try_send_model_update(self, model_bytes):
         
@@ -200,7 +223,7 @@ class TCPConnection:
             return False
         
         # otherwise, evaluates to check if it is the expected message
-        if not msg == TCPMessageType.MODEL_REQUEST:
+        if not msg == TCPConnection.default_message(TCPMessageType.MODEL_REQUEST):
             # if not, ERROR!
             raise Exception('MODEL_REQUEST expected. Received instead:', msg)
             return False
@@ -215,7 +238,7 @@ class TCPConnection:
             
         # if it is not a ACK
         # TODO: do we really need this ACK?
-        if not msg == TCPMessageType.ACK:
+        if not msg == TCPConnection.default_message(TCPMessageType.ACK):
             # ERROR!
             raise Exception('ACK expected. Received instead:', msg)
             return False
@@ -236,10 +259,11 @@ class TCPConnection:
         
         # client's socket (self._connection) is non-blocking, so we may receive nothing!
         if msg == '':
+            print('nada', end=' ')
             return False
         
         # otherwise, evaluates to check if it is the expected message
-        if not msg == TCPMessageType.MEMORY_REQUEST:
+        if not msg == TCPConnection.default_message(TCPMessageType.MEMORY_REQUEST):
             # if not, ERROR!
             raise Exception('MEMORY_REQUEST expected. Received instead:', msg)
             return
@@ -247,7 +271,7 @@ class TCPConnection:
         
         # send a ack informing that size was received
         # TODO: do we really need this ACK?
-        self._send(TCPMessageType.ACK)
+        self._send(TCPConnection.default_message(TCPMessageType.ACK))
         
         # client's socket (self._connection) is non-blocking, so we may receive nothing!
         # then poll for reception!
